@@ -1,4 +1,5 @@
-
+####!!!Note that you need to create an ec2 keypair prior launching this stack!!!####
+####################################################################################
 #This VPC stack create:
 #- 4 subnets with 2AZs (2 private subnet, 2 public subnet)
 #- Internet Gateway
@@ -9,10 +10,11 @@
 #- SecurityGroup for Bastion host
 #- Bastion instance IAM Role with SysAdmin Policy
 
+
 #Internet Connectivity#
     #For public subnet, internet connectivity is done with internet Gateway
     #For private subnet, internet connectivity is done via NAT Gateway
- 
+
 #This is where you define your Input parameters. You then reference them with a !Ref in the Resource section
 Parameters:
   #Network Input Parameters
@@ -63,8 +65,7 @@ Mappings:
     ca-central-1: 
      HVM64: ami-0b18956f
      HVMG2: NOT_SUPPORTED
-#Conditions:
-  #CreateDevResources: !Equals [ !Ref EnvType, dev ]
+
 Resources:
   # VPC Setup
   CustVPC:
@@ -249,7 +250,7 @@ Resources:
             - !Ref InstanceSecurityGroup
           SubnetId: !Ref CustPublicSubnetA
       KeyName: !Ref BastionKeyName
-
+#This is where you setup variable you want to export in another stack as input (Cross-stack reference)
 Outputs:
   VPCId:
     Description: "VPC ID"
