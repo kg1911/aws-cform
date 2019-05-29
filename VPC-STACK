@@ -1,0 +1,278 @@
+
+#This VPC stack create:
+#- 4 subnets with 2AZs (2 private subnet, 2 public subnet)
+#- Internet Gateway
+#- Nat Gateway
+#- Public Route table
+#- Private Route table
+#- Bastion host
+#- SecurityGroup for Bastion host
+#- Bastion instance IAM Role with SysAdmin Policy
+
+#Internet Connectivity#
+    #For public subnet, internet connectivity is done with internet Gateway
+    #For private subnet, internet connectivity is done via NAT Gateway
+ 
+#This is where you define your Input parameters. You then reference them with a !Ref in the Resource section
+Parameters:
+  #Network Input Parameters
+  VpcCidrBlock:
+    Type: String
+    Description: Change your subnet if needed
+    Default: "10.0.0.0/16"
+  PublicSubnetAinput:
+    Description: Change your subnet if needed
+    Type: String
+    Default: "10.0.1.0/24"
+  PublicSubnetBinput:
+    Description: Change your subnet if needed
+    Type: String
+    Default: "10.0.3.0/24"
+  PrivateSubnetAinput:
+    Description: Change your subnet if needed
+    Type: String
+    Default: "10.0.2.0/24"
+  PrivateSubnetBinput:
+    Description: Change your subnet if needed
+    Type: String
+    Default: "10.0.4.0/24"
+  
+  #AMI Input Parameters
+  InstanceType:
+    Type: String
+    Description: 'Please the bastion host instance type (default is t2.small)'
+    Default: t2.small
+    AllowedValues:
+      - t2.micro
+      - t2.small
+  RemoteIpAddress:
+    Description: 'For Security purpose, always enter your own public IPaddress/32'
+    Type: String
+    Default: 0.0.0.0/0
+  BastionKeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: 'Enter Your KeyPair Name'
+
+Mappings:
+  AWSInstanceType2Arch:
+      t1.micro:
+        Arch: HVM64
+      t2.small:
+        Arch: HVM64
+  AWSRegion2AMI:
+    ca-central-1: 
+     HVM64: ami-0b18956f
+     HVMG2: NOT_SUPPORTED
+#Conditions:
+  #CreateDevResources: !Equals [ !Ref EnvType, dev ]
+Resources:
+  # VPC Setup
+  CustVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidrBlock
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Join ['', [!Ref 'AWS::StackName', '-VPC']]
+  # Internet Gateway for VPC
+  CustInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    DependsOn: CustVPC
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref CustVPC
+      InternetGatewayId: !Ref CustInternetGateway
+  #NAT Gateway for VPC
+  CustNATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt ElasticIPAddress.AllocationId
+      SubnetId: !Ref CustPublicSubnetA
+      Tags:
+        - Key: Name
+          Value: !Sub NAT-${AWS::StackName}
+  ElasticIPAddress:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: CustVPC
+  #Public Subnet A
+  CustPublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref CustVPC
+      CidrBlock: !Ref PublicSubnetAinput
+      AvailabilityZone: !Select [ 0, !GetAZs ]
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-Public-A
+  #Public Subnet B
+  CustPublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref CustVPC
+      CidrBlock: !Ref PublicSubnetBinput
+      AvailabilityZone: !Select [ 1, !GetAZs ]
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-Public-B
+  #Private Subnet A
+  CustPrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref CustVPC
+      CidrBlock: !Ref PrivateSubnetAinput
+      AvailabilityZone: !Select [ 0, !GetAZs ]
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-Private-A
+  #Private Subnet B
+  CustPrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref CustVPC
+      CidrBlock: !Ref PrivateSubnetBinput
+      AvailabilityZone: !Select [ 1, !GetAZs ]
+      Tags:
+        - Key: Name
+          Value: !Sub ${AWS::StackName}-Private-B
+  # Route Table Definition
+  #
+  CustPublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref CustVPC
+      Tags:
+        - Key: Name
+          Value: PublicRouteDEV
+  CustPublicRouteDEV:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref CustPublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref CustInternetGateway
+
+  CustPrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref CustVPC
+      Tags:
+        - Key: Name
+          Value: PrivateRouteDEV
+  CustPrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref CustPrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref CustNATGateway
+  #Attach RouteTable to subnet
+  #Public
+  CustPublicSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref CustPublicSubnetA
+      RouteTableId: !Ref CustPublicRouteTable
+  CustPublicSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref CustPublicSubnetB
+      RouteTableId: !Ref CustPublicRouteTable
+  #Private
+  CustPrivateSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref CustPrivateSubnetA
+      RouteTableId: !Ref CustPrivateRouteTable
+  CustPrivateSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref CustPrivateSubnetB
+      RouteTableId: !Ref CustPrivateRouteTable
+#Ec2BastionHost Instance Definition
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Description: BastionHostSecurityGroup
+    Properties:
+      VpcId: !Ref CustVPC
+      GroupDescription: Enable SSH for everyone outside
+      SecurityGroupIngress:
+       - IpProtocol: tcp
+         FromPort: '22'
+         ToPort: '22'
+         CidrIp: !Ref RemoteIpAddress
+#Definition of policy to use for the bastion host
+  SysAdminRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/job-function/SystemAdministrator"
+      AssumeRolePolicyDocument:
+        Statement:
+          -
+           Effect: "Allow"
+           Principal:
+            Service:
+              - "ec2.amazonaws.com"
+           Action:
+            - "sts:AssumeRole"
+      Path: "/"
+#IAM Instance profile allowing access to resources refered in SystemAdministrator Policy
+  SysAdminInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Path: "/"
+      Roles:
+        -
+         !Ref SysAdminRole
+#EC2 Bastion host configuration
+  Ec2BastionHost:
+    Type: AWS::EC2::Instance
+    Description: BastionHost for remote admin
+    Properties:
+      InstanceType: !Ref InstanceType
+      ImageId:
+        !FindInMap
+         - AWSRegion2AMI
+         - !Ref AWS::Region
+         - !FindInMap
+           - AWSInstanceType2Arch
+           - !Ref InstanceType
+           - Arch
+      IamInstanceProfile: !Ref SysAdminInstanceProfile
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: "true"
+          DeviceIndex: "0"
+          GroupSet:
+            - !Ref InstanceSecurityGroup
+          SubnetId: !Ref CustPublicSubnetA
+      KeyName: !Ref BastionKeyName
+
+Outputs:
+  VPCId:
+    Description: "VPC ID"
+    Value: !Ref CustVPC
+    Export:
+      Name: !Sub "${AWS::StackName}-VPCID"
+  CustPublicSubnetAiD:
+    Description: "CustPublicSubnetA output"
+    Value: !Ref CustPublicSubnetA
+    Export:
+      Name: !Sub "${AWS::StackName}-CustPublicSubnetA"
+  CustPublicSubnetBiD:
+    Description: "CustPublicSubnetB output"
+    Value: !Ref CustPublicSubnetB
+    Export:
+      Name: !Sub "${AWS::StackName}-CustPublicSubnetB"
+  CustPrivateSubnetAiD:
+    Description: "CustPrivateSubnetA output"
+    Value: !Ref CustPrivateSubnetA
+    Export:
+      Name: !Sub "${AWS::StackName}-CustPrivateSubnetA"
+  CustPrivateSubnetBiD:
+    Description: "CustPrivateSubnetB output"
+    Value: !Ref CustPrivateSubnetB
+    Export:
+      Name: !Sub "${AWS::StackName}-CustPrivateSubnetB"
